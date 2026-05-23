@@ -1,0 +1,57 @@
+name: backend
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend.yml"
+  pull_request:
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend.yml"
+
+defaults:
+  run:
+    working-directory: backend
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Compile
+        run: ./gradlew compileJava compileTestJava --no-daemon
+
+      - name: Spotless check
+        run: ./gradlew spotlessCheck --no-daemon
+
+      - name: Checkstyle
+        run: ./gradlew checkstyleMain checkstyleTest --no-daemon
+
+      - name: SpotBugs
+        run: ./gradlew spotbugsMain --no-daemon
+
+      - name: Test (with Testcontainers)
+        run: ./gradlew test --no-daemon
+
+      - name: Upload reports on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-reports
+          path: |
+            backend/build/reports/
+            backend/build/test-results/
+          retention-days: 7

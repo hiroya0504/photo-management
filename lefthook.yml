@@ -1,0 +1,18 @@
+pre-commit:
+  parallel: true
+  commands:
+    backend-format:
+      glob: "backend/**/*.java"
+      run: cd backend && ./gradlew spotlessApply -PspotlessFiles="{staged_files}"
+      stage_fixed: true
+    backend-checkstyle:
+      glob: "backend/**/*.java"
+      run: cd backend && ./gradlew checkstyleMain checkstyleTest
+    frontend-eslint:
+      glob: "frontend/**/*.{ts,tsx,js,jsx}"
+      run: cd frontend && pnpm eslint --fix {staged_files}
+      stage_fixed: true
+    frontend-prettier:
+      glob: "frontend/**/*.{ts,tsx,js,jsx,json,css,md}"
+      run: cd frontend && pnpm prettier --write {staged_files}
+      stage_fixed: true
