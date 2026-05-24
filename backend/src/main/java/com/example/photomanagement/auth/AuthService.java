@@ -6,12 +6,13 @@ import com.example.photomanagement.user.RoleMapper;
 import com.example.photomanagement.user.User;
 import com.example.photomanagement.user.UserMapper;
 import java.util.Optional;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Handles user account creation and credential verification. Token issuance is delegated to {@code
- * JwtService} and {@code RefreshTokenService}; this class deals only in {@link User}.
+ * JwtService} and {@link RefreshTokenService}; this class deals only in {@link User}.
  */
 @Service
 public class AuthService {
@@ -21,11 +22,17 @@ public class AuthService {
   private final UserMapper userMapper;
   private final RoleMapper roleMapper;
   private final PasswordHasher passwordHasher;
+  private final RefreshTokenService refreshTokenService;
 
-  public AuthService(UserMapper userMapper, RoleMapper roleMapper, PasswordHasher passwordHasher) {
+  public AuthService(
+      UserMapper userMapper,
+      RoleMapper roleMapper,
+      PasswordHasher passwordHasher,
+      RefreshTokenService refreshTokenService) {
     this.userMapper = userMapper;
     this.roleMapper = roleMapper;
     this.passwordHasher = passwordHasher;
+    this.refreshTokenService = refreshTokenService;
   }
 
   @Transactional
@@ -34,7 +41,12 @@ public class AuthService {
       throw new ConflictException("EMAIL_TAKEN", "Email is already in use");
     }
     String hashed = passwordHasher.hash(plainPassword);
-    userMapper.insert(email, hashed);
+    try {
+      userMapper.insert(email, hashed);
+    } catch (DuplicateKeyException e) {
+      // A concurrent signup with the same email won the race; the partial unique index fired.
+      throw new ConflictException("EMAIL_TAKEN", "Email is already in use");
+    }
     User created = userMapper.findActiveByEmail(email).orElseThrow();
     Short userRoleId =
         roleMapper
@@ -59,6 +71,12 @@ public class AuthService {
     return maybeUser.get();
   }
 
+  /**
+   * Changes the password after verifying the old one, then revokes every active refresh token for
+   * the user so existing sessions (potentially on other devices, or held by an attacker) cannot
+   * continue. Outstanding access tokens remain valid until their natural expiry (≤ 15 min) — that
+   * window is the documented trade-off of stateless JWT access tokens.
+   */
   @Transactional
   public void changePassword(Long userId, String oldPlainPassword, String newPlainPassword) {
     User user =
@@ -69,5 +87,6 @@ public class AuthService {
       throw new UnauthorizedException("INVALID_CREDENTIALS", "Current password is incorrect");
     }
     userMapper.updatePasswordHash(user.id(), passwordHasher.hash(newPlainPassword));
+    refreshTokenService.revokeAllForUser(user.id());
   }
 }

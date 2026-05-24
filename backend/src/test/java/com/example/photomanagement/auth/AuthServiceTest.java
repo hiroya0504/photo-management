@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -26,12 +27,14 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DuplicateKeyException;
 
 @ExtendWith(MockitoExtension.class)
 class AuthServiceTest {
 
   @Mock private UserMapper userMapper;
   @Mock private RoleMapper roleMapper;
+  @Mock private RefreshTokenService refreshTokenService;
 
   private PasswordHasher passwordHasher;
   private AuthService authService;
@@ -49,7 +52,7 @@ class AuthServiceTest {
                 Duration.ofSeconds(5)),
             new PasswordProps(4)); // low cost for fast tests
     passwordHasher = new PasswordHasher(props);
-    authService = new AuthService(userMapper, roleMapper, passwordHasher);
+    authService = new AuthService(userMapper, roleMapper, passwordHasher, refreshTokenService);
   }
 
   @Test
@@ -76,6 +79,23 @@ class AuthServiceTest {
         .hasMessageContaining("Email is already in use");
 
     verify(userMapper, never()).insert(anyString(), anyString());
+    verify(roleMapper, never()).assignRole(any(), any());
+  }
+
+  @Test
+  void signupConcurrentInsertThrowsConflictNotRawDataException() {
+    // Race condition: another transaction inserted the same email between our findActiveByEmail
+    // check and our insert. The partial unique index fires and Spring wraps it as
+    // DuplicateKeyException. The user-facing API contract must still return EMAIL_TAKEN.
+    when(userMapper.findActiveByEmail("race@example.com")).thenReturn(Optional.empty());
+    doThrow(new DuplicateKeyException("partial unique index violation"))
+        .when(userMapper)
+        .insert(eq("race@example.com"), anyString());
+
+    assertThatThrownBy(() -> authService.signup("race@example.com", "password"))
+        .isInstanceOf(ConflictException.class)
+        .hasMessageContaining("Email is already in use");
+
     verify(roleMapper, never()).assignRole(any(), any());
   }
 
@@ -112,7 +132,7 @@ class AuthServiceTest {
   }
 
   @Test
-  void changePasswordSucceedsAndUpdatesHash() {
+  void changePasswordSucceedsAndRevokesAllRefreshTokens() {
     String oldHash = passwordHasher.hash("old-pw");
     when(userMapper.findActiveById(30L))
         .thenReturn(Optional.of(stubUser(30L, "carol@example.com", oldHash)));
@@ -120,6 +140,8 @@ class AuthServiceTest {
     authService.changePassword(30L, "old-pw", "new-pw");
 
     verify(userMapper, times(1)).updatePasswordHash(eq(30L), anyString());
+    // Password change must invalidate every existing session on every device.
+    verify(refreshTokenService, times(1)).revokeAllForUser(30L);
   }
 
   @Test
@@ -133,6 +155,7 @@ class AuthServiceTest {
         .hasMessageContaining("Current password is incorrect");
 
     verify(userMapper, never()).updatePasswordHash(any(), anyString());
+    verify(refreshTokenService, never()).revokeAllForUser(any());
   }
 
   private static User stubUser(long id, String email, String passwordHash) {
