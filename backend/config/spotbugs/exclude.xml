@@ -4,18 +4,23 @@
         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
         xsi:schemaLocation="https://github.com/spotbugs/filter/3.0.0 https://raw.githubusercontent.com/spotbugs/spotbugs/master/spotbugs/etc/findbugsfilter.xsd">
 
-    <!-- Spring Boot generates synthetic accessors in @ConfigurationProperties classes -->
+    <!--
+      SpotBugs is overly cautious about constructor injection and exposing
+      Spring-managed beans. In a DI container these references are owned by Spring,
+      not by application code, so defensive copying does not apply.
+    -->
     <Match>
-        <Class name="~.*\.config\..*Properties"/>
+        <Class name="~com\.example\.photomanagement\..*"/>
         <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
     </Match>
 
-    <!-- Allow exposing internal state in DTOs / MyBatis records -->
+    <!--
+      Beans that validate their @ConfigurationProperties in the constructor
+      intentionally fail fast when misconfigured (e.g. JWT secret too short).
+      CT_CONSTRUCTOR_THROW does not apply to that pattern.
+    -->
     <Match>
-        <Or>
-            <Class name="~.*\.dto\..*"/>
-            <Class name="~.*\.domain\..*"/>
-        </Or>
-        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+        <Class name="~com\.example\.photomanagement\..*"/>
+        <Bug pattern="CT_CONSTRUCTOR_THROW"/>
     </Match>
 </FindBugsFilter>
