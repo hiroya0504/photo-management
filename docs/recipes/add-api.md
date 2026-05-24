@@ -20,6 +20,7 @@
 4. **Service**: `XxxService`
    - `@Service` 注釈、コンストラクタインジェクションで `XxxMapper` を受け取る。
    - 書き込みメソッドに `@Transactional`、読み取りは `@Transactional(readOnly = true)`。
+   - メソッド内で **tx スコープを細かく分けたい場合**（例: 一部だけ `REQUIRES_NEW` で独立 commit したい）は `TransactionTemplate` を注入して programmatic に使ってよい。同一クラス内 self-invocation で `@Transactional(propagation = ...)` が効かない罠を踏まないため。
    - 異常系は `DomainException` のサブクラスを `throw`。
 
 5. **Controller**: `XxxController`

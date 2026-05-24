@@ -9,7 +9,7 @@ photo-management のアーキ全体像。実装の Why は `docs/adr/` を、操
         ↓ fetch / Server Actions
 [ Spring Boot REST API ]
    - Controller (HTTP)
-   - Service    (business / @Transactional)
+   - Service    (business / @Transactional, fall back to TransactionTemplate for partial-scope tx)
    - Mapper     (MyBatis SQL)
         ↓ JDBC
 [ PostgreSQL ]

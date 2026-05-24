@@ -32,7 +32,7 @@ com.example.photomanagement/
 | レイヤ | クラス名サフィックス | 役割 |
 | --- | --- | --- |
 | Controller | `*Controller` | HTTP I/O、DTO ↔ Domain 変換、認可 |
-| Service | `*Service` | ビジネスロジック、**トランザクション境界**（`@Transactional`） |
+| Service | `*Service` | ビジネスロジック、**トランザクション境界**（`@Transactional` がデフォルト。メソッド内の一部だけ別 tx にしたい等の場合は `TransactionTemplate` を使ってよい） |
 | Mapper | `*Mapper` | MyBatis インターフェース、SQL ↔ POJO |
 
 - **Domain** = Mapper が返す POJO `record`（振る舞いを持たせない）。
