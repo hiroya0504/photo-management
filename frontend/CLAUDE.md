@@ -7,14 +7,14 @@ Next.js 16 (App Router) / TypeScript / Tailwind / Vitest。
 ルートの `make dev` / `make lint-frontend` / `make test-frontend` 経由が標準。
 個別に動かしたい場合:
 
-| コマンド | 用途 |
-| --- | --- |
-| `pnpm dev` | 開発サーバ起動 |
-| `pnpm build` | 本番ビルド |
-| `pnpm typecheck` | TypeScript 型チェック |
-| `pnpm lint` / `pnpm lint:fix` | ESLint |
-| `pnpm format` / `pnpm format:check` | Prettier |
-| `pnpm test` / `pnpm test:watch` | Vitest |
+| コマンド                            | 用途                  |
+| ----------------------------------- | --------------------- |
+| `pnpm dev`                          | 開発サーバ起動        |
+| `pnpm build`                        | 本番ビルド            |
+| `pnpm typecheck`                    | TypeScript 型チェック |
+| `pnpm lint` / `pnpm lint:fix`       | ESLint                |
+| `pnpm format` / `pnpm format:check` | Prettier              |
+| `pnpm test` / `pnpm test:watch`     | Vitest                |
 
 ## 構成
 
