@@ -68,19 +68,45 @@ public class RefreshTokenService {
     }
 
     if (record.usedAt() != null) {
-      Duration sinceUsed = Duration.between(record.usedAt(), now);
-      if (sinceUsed.compareTo(props.refreshToken().graceWindow()) > 0) {
-        // Outside grace window: treat as theft / replay.
-        mapper.revokeFamily(record.familyId(), now);
-        throw new UnauthorizedException(
-            "TOKEN_REUSE", "Refresh token reuse detected; family revoked");
-      }
-      // Within grace window: assume network retry. Issue a fresh token in the same family
-      // without re-marking used_at (already set).
-    } else {
-      mapper.markUsed(record.id(), now);
+      return handleAlreadyUsed(record, now);
     }
 
+    // Atomic "mark used"; the WHERE used_at IS NULL guard ensures only one of any concurrent
+    // rotations of the same plaintext wins. The loser sees affected-rows = 0 and falls back to
+    // the same path as a deliberate reuse (grace window or family revocation).
+    int marked = mapper.markUsed(record.id(), now);
+    if (marked == 0) {
+      RefreshTokenRecord refreshed =
+          mapper
+              .findByTokenHash(tokenHash)
+              .orElseThrow(
+                  () -> new UnauthorizedException("INVALID_REFRESH", "Unknown refresh token"));
+      return handleAlreadyUsed(refreshed, now);
+    }
+
+    NewRefreshToken issued = issue(record.userId(), record.familyId());
+    return new RotationResult(record.userId(), issued);
+  }
+
+  /**
+   * Decides what to do when a refresh token is presented after it has already been consumed: within
+   * the grace window we assume a benign retry (issue a new token, family stays alive); outside it
+   * we treat the reuse as theft and revoke the whole family.
+   */
+  private RotationResult handleAlreadyUsed(RefreshTokenRecord record, Instant now) {
+    Instant usedAt = record.usedAt();
+    if (usedAt == null) {
+      // Race: someone reverted used_at between markUsed and our re-read. Defensive: treat as theft.
+      mapper.revokeFamily(record.familyId(), now);
+      throw new UnauthorizedException(
+          "TOKEN_REUSE", "Refresh token reuse detected; family revoked");
+    }
+    Duration sinceUsed = Duration.between(usedAt, now);
+    if (sinceUsed.compareTo(props.refreshToken().graceWindow()) > 0) {
+      mapper.revokeFamily(record.familyId(), now);
+      throw new UnauthorizedException(
+          "TOKEN_REUSE", "Refresh token reuse detected; family revoked");
+    }
     NewRefreshToken issued = issue(record.userId(), record.familyId());
     return new RotationResult(record.userId(), issued);
   }
@@ -95,6 +121,18 @@ public class RefreshTokenService {
       return;
     }
     mapper.revokeById(maybeRecord.get().id(), clock.instant());
+  }
+
+  /**
+   * Revokes every active refresh token for a user (all devices). Called when an event invalidates
+   * trust in existing sessions — most notably a password change.
+   *
+   * <p>Note: outstanding access tokens (JWTs) cannot be revoked and remain valid until their expiry
+   * (max 15 min). This is the documented trade-off of stateless access tokens.
+   */
+  @Transactional
+  public int revokeAllForUser(Long userId) {
+    return mapper.revokeAllForUser(userId, clock.instant());
   }
 
   private NewRefreshToken issue(Long userId, UUID familyId) {
