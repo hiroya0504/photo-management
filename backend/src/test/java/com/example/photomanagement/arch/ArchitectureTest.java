@@ -27,26 +27,30 @@ import org.springframework.web.bind.annotation.RestController;
     importOptions = {ImportOption.DoNotIncludeTests.class})
 class ArchitectureTest {
 
+  // Package-by-feature places Controllers in feature packages (e.g. auth/AuthController.java),
+  // not in a `..controller..` subpackage. We therefore match by class-name suffix as well.
+
   @ArchTest
   static final ArchRule controllersDoNotDependOnMappers =
       noClasses()
           .that()
-          .resideInAPackage("..controller..")
-          .or()
           .haveSimpleNameEndingWith("Controller")
           .should()
           .dependOnClassesThat()
-          .resideInAPackage("..mapper..")
+          .haveSimpleNameEndingWith("Mapper")
           .allowEmptyShould(true);
 
   @ArchTest
   static final ArchRule mappersDoNotDependOnControllersOrServices =
       noClasses()
           .that()
-          .resideInAPackage("..mapper..")
+          .haveSimpleNameEndingWith("Mapper")
           .should()
           .dependOnClassesThat()
-          .resideInAnyPackage("..controller..", "..service..")
+          .haveSimpleNameEndingWith("Controller")
+          .orShould()
+          .dependOnClassesThat()
+          .haveSimpleNameEndingWith("Service")
           .allowEmptyShould(true);
 
   @ArchTest

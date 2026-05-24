@@ -5,6 +5,7 @@ import com.example.photomanagement.common.error.UnauthorizedException;
 import com.example.photomanagement.user.RoleMapper;
 import com.example.photomanagement.user.User;
 import com.example.photomanagement.user.UserMapper;
+import java.util.List;
 import java.util.Optional;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
@@ -23,16 +24,29 @@ public class AuthService {
   private final RoleMapper roleMapper;
   private final PasswordHasher passwordHasher;
   private final RefreshTokenService refreshTokenService;
+  private final JwtService jwtService;
 
   public AuthService(
       UserMapper userMapper,
       RoleMapper roleMapper,
       PasswordHasher passwordHasher,
-      RefreshTokenService refreshTokenService) {
+      RefreshTokenService refreshTokenService,
+      JwtService jwtService) {
     this.userMapper = userMapper;
     this.roleMapper = roleMapper;
     this.passwordHasher = passwordHasher;
     this.refreshTokenService = refreshTokenService;
+    this.jwtService = jwtService;
+  }
+
+  /**
+   * Loads the user's roles and mints a fresh access token. Kept in the service layer so the
+   * controller does not call {@link RoleMapper} directly (3-layer rule enforced by ArchUnit).
+   */
+  @Transactional(readOnly = true)
+  public String issueAccessTokenFor(Long userId) {
+    List<String> roles = roleMapper.findRoleNamesByUserId(userId);
+    return jwtService.issueAccessToken(userId, roles);
   }
 
   @Transactional
@@ -48,6 +62,9 @@ public class AuthService {
       throw new ConflictException("EMAIL_TAKEN", "Email is already in use");
     }
     User created = userMapper.findActiveByEmail(email).orElseThrow();
+    // V2__create_auth.sql seeds 'USER'. Missing it indicates schema tampering or a broken
+    // migration; fail fast with an IllegalStateException (the catch-all in
+    // ProblemDetailsAdvice surfaces this to clients as a 500 ProblemDetails).
     Short userRoleId =
         roleMapper
             .findIdByName(ROLE_USER)
@@ -76,6 +93,10 @@ public class AuthService {
    * the user so existing sessions (potentially on other devices, or held by an attacker) cannot
    * continue. Outstanding access tokens remain valid until their natural expiry (≤ 15 min) — that
    * window is the documented trade-off of stateless JWT access tokens.
+   *
+   * <p>Not wired to an HTTP endpoint yet: the {@code POST /api/users/me/password} controller lands
+   * in the M2 step 8 PR. The shape (userId taken from the authenticated principal; old + new
+   * password in a request DTO) is fixed here so the controller layer is a straight pass-through.
    */
   @Transactional
   public void changePassword(Long userId, String oldPlainPassword, String newPlainPassword) {

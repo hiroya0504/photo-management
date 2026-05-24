@@ -35,6 +35,7 @@ class AuthServiceTest {
   @Mock private UserMapper userMapper;
   @Mock private RoleMapper roleMapper;
   @Mock private RefreshTokenService refreshTokenService;
+  @Mock private JwtService jwtService;
 
   private PasswordHasher passwordHasher;
   private AuthService authService;
@@ -43,7 +44,7 @@ class AuthServiceTest {
   void setUp() {
     AuthProperties props =
         new AuthProperties(
-            new JwtProps("test-secret-not-used", Duration.ofMinutes(15)),
+            new JwtProps("test-secret-min-32-bytes-12345678901234", Duration.ofMinutes(15)),
             new RefreshTokenProps(
                 Duration.ofDays(7),
                 "refresh_token",
@@ -52,7 +53,8 @@ class AuthServiceTest {
                 Duration.ofSeconds(5)),
             new PasswordProps(4)); // low cost for fast tests
     passwordHasher = new PasswordHasher(props);
-    authService = new AuthService(userMapper, roleMapper, passwordHasher, refreshTokenService);
+    authService =
+        new AuthService(userMapper, roleMapper, passwordHasher, refreshTokenService, jwtService);
   }
 
   @Test
@@ -156,6 +158,17 @@ class AuthServiceTest {
 
     verify(userMapper, never()).updatePasswordHash(any(), anyString());
     verify(refreshTokenService, never()).revokeAllForUser(any());
+  }
+
+  @Test
+  void issueAccessTokenForLooksUpRolesAndSignsToken() {
+    when(roleMapper.findRoleNamesByUserId(42L)).thenReturn(java.util.List.of("USER", "ADMIN"));
+    when(jwtService.issueAccessToken(42L, java.util.List.of("USER", "ADMIN")))
+        .thenReturn("signed-jwt-value");
+
+    String token = authService.issueAccessTokenFor(42L);
+
+    assertThat(token).isEqualTo("signed-jwt-value");
   }
 
   private static User stubUser(long id, String email, String passwordHash) {
