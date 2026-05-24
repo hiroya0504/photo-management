@@ -129,8 +129,9 @@ class AuthControllerTest {
             .andExpect(cookie().exists(COOKIE_NAME))
             .andReturn();
 
-    String rotated = res.getResponse().getCookie(COOKIE_NAME).getValue();
-    assertThat(rotated).isNotEqualTo(initial.getValue());
+    Cookie rotated = res.getResponse().getCookie(COOKIE_NAME);
+    assertThat(rotated).as("refresh cookie should be set").isNotNull();
+    assertThat(rotated.getValue()).isNotEqualTo(initial.getValue());
   }
 
   @Test
@@ -142,16 +143,42 @@ class AuthControllerTest {
   }
 
   @Test
-  void logoutClearsCookieEvenWithoutAuthorizationHeader() throws Exception {
+  void logoutSucceedsWithoutAuthHeader() throws Exception {
     Cookie initial = signup(uniqueEmail, "correct-horse-battery");
 
-    // No Authorization header (simulating expired access token). Must still succeed and clear
-    // cookie.
     mockMvc
         .perform(post("/api/auth/logout").cookie(initial))
         .andExpect(status().isNoContent())
         .andExpect(
             header().string("Set-Cookie", org.hamcrest.Matchers.containsString("Max-Age=0")));
+  }
+
+  @Test
+  void logoutSucceedsWithExpiredBearer() throws Exception {
+    Cookie initial = signup(uniqueEmail, "correct-horse-battery");
+
+    // A JWT that is structurally valid but signed with the wrong key (so any verification fails).
+    // Without the dedicated logout filter chain this would 401 before reaching the controller.
+    String expiredLooking = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIiwiZXhwIjowfQ.invalid-signature";
+
+    mockMvc
+        .perform(
+            post("/api/auth/logout")
+                .cookie(initial)
+                .header("Authorization", "Bearer " + expiredLooking))
+        .andExpect(status().isNoContent())
+        .andExpect(
+            header().string("Set-Cookie", org.hamcrest.Matchers.containsString("Max-Age=0")));
+  }
+
+  @Test
+  void logoutSucceedsWithGarbageBearer() throws Exception {
+    Cookie initial = signup(uniqueEmail, "correct-horse-battery");
+
+    mockMvc
+        .perform(
+            post("/api/auth/logout").cookie(initial).header("Authorization", "Bearer not-a-jwt"))
+        .andExpect(status().isNoContent());
   }
 
   // -- helpers -------------------------------------------------------------
