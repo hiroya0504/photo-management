@@ -56,4 +56,16 @@ public interface RefreshTokenMapper {
       WHERE id = #{id} AND revoked_at IS NULL
       """)
   int revokeById(@Param("id") Long id, @Param("revokedAt") Instant revokedAt);
+
+  /**
+   * Revokes every active token belonging to a user. Used when an event invalidates the trust placed
+   * in any existing session (e.g. a password change).
+   */
+  @Update(
+      """
+      UPDATE refresh_tokens
+      SET revoked_at = #{revokedAt}
+      WHERE user_id = #{userId} AND revoked_at IS NULL
+      """)
+  int revokeAllForUser(@Param("userId") Long userId, @Param("revokedAt") Instant revokedAt);
 }
