@@ -70,28 +70,28 @@ public class RefreshTokenService {
   @Transactional
   public RotationResult rotate(String plaintextToken) {
     String tokenHash = sha256Hex(plaintextToken);
-    RefreshTokenRecord record =
+    RefreshTokenRecord tokenRecord =
         mapper
             .findByTokenHash(tokenHash)
             .orElseThrow(
                 () -> new UnauthorizedException("INVALID_REFRESH", "Unknown refresh token"));
     Instant now = clock.instant();
 
-    if (record.revokedAt() != null) {
+    if (tokenRecord.revokedAt() != null) {
       throw new UnauthorizedException("REVOKED_REFRESH", "Refresh token has been revoked");
     }
-    if (!now.isBefore(record.expiresAt())) {
+    if (!now.isBefore(tokenRecord.expiresAt())) {
       throw new UnauthorizedException("EXPIRED_REFRESH", "Refresh token expired");
     }
 
-    if (record.usedAt() != null) {
-      return handleAlreadyUsed(record, now);
+    if (tokenRecord.usedAt() != null) {
+      return handleAlreadyUsed(tokenRecord, now);
     }
 
     // Atomic "mark used"; the WHERE used_at IS NULL guard ensures only one of any concurrent
     // rotations of the same plaintext wins. The loser sees affected-rows = 0 and falls back to
     // the same path as a deliberate reuse (grace window or family revocation).
-    int marked = mapper.markUsed(record.id(), now);
+    int marked = mapper.markUsed(tokenRecord.id(), now);
     if (marked == 0) {
       RefreshTokenRecord refreshed =
           mapper
@@ -101,31 +101,36 @@ public class RefreshTokenService {
       return handleAlreadyUsed(refreshed, now);
     }
 
-    NewRefreshToken issued = issue(record.userId(), record.familyId());
-    return new RotationResult(record.userId(), issued);
+    NewRefreshToken issued = issue(tokenRecord.userId(), tokenRecord.familyId());
+    return new RotationResult(tokenRecord.userId(), issued);
   }
 
   /**
    * Decides what to do when a refresh token is presented after it has already been consumed: within
    * the grace window we assume a benign retry (issue a new token, family stays alive); outside it
    * we treat the reuse as theft and revoke the whole family.
+   *
+   * <p>Note on rollback: when this method is reached via the {@code marked == 0} race-loser path,
+   * the outer {@code rotate} transaction has performed no writes (the {@code markUsed} guarded
+   * UPDATE matched zero rows). The subsequent {@code UnauthorizedException} therefore rolls back
+   * nothing — only the REQUIRES_NEW family revoke persists, which is the desired outcome.
    */
-  private RotationResult handleAlreadyUsed(RefreshTokenRecord record, Instant now) {
-    Instant usedAt = record.usedAt();
+  private RotationResult handleAlreadyUsed(RefreshTokenRecord tokenRecord, Instant now) {
+    Instant usedAt = tokenRecord.usedAt();
     if (usedAt == null) {
       // Race: someone reverted used_at between markUsed and our re-read. Defensive: treat as theft.
-      revokeFamilyInOwnTransaction(record.familyId(), now);
+      revokeFamilyInOwnTransaction(tokenRecord.familyId(), now);
       throw new UnauthorizedException(
           "TOKEN_REUSE", "Refresh token reuse detected; family revoked");
     }
     Duration sinceUsed = Duration.between(usedAt, now);
     if (sinceUsed.compareTo(props.refreshToken().graceWindow()) > 0) {
-      revokeFamilyInOwnTransaction(record.familyId(), now);
+      revokeFamilyInOwnTransaction(tokenRecord.familyId(), now);
       throw new UnauthorizedException(
           "TOKEN_REUSE", "Refresh token reuse detected; family revoked");
     }
-    NewRefreshToken issued = issue(record.userId(), record.familyId());
-    return new RotationResult(record.userId(), issued);
+    NewRefreshToken issued = issue(tokenRecord.userId(), tokenRecord.familyId());
+    return new RotationResult(tokenRecord.userId(), issued);
   }
 
   private void revokeFamilyInOwnTransaction(UUID familyId, Instant now) {
