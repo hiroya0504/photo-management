@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+  <!--
+    Logging configuration.
+    - "prod" profile: JSON output via logstash-logback-encoder, suitable for log aggregators.
+    - Otherwise (local/test): human-readable pattern that includes the requestId from MDC.
+  -->
+
+  <springProperty scope="context" name="appName" source="spring.application.name" defaultValue="photo-management"/>
+
+  <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+    <encoder>
+      <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} reqId=%X{requestId:-} - %msg%n</pattern>
+    </encoder>
+  </appender>
+
+  <appender name="JSON_CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+    <encoder class="net.logstash.logback.encoder.LoggingEventCompositeJsonEncoder">
+      <providers>
+        <timestamp>
+          <fieldName>timestamp</fieldName>
+          <timeZone>UTC</timeZone>
+        </timestamp>
+        <logLevel/>
+        <loggerName/>
+        <threadName/>
+        <mdc/>
+        <message/>
+        <stackTrace/>
+        <pattern>
+          <pattern>{"app":"${appName}"}</pattern>
+        </pattern>
+      </providers>
+    </encoder>
+  </appender>
+
+  <springProfile name="prod">
+    <root level="INFO">
+      <appender-ref ref="JSON_CONSOLE"/>
+    </root>
+    <logger name="com.example.photomanagement" level="INFO"/>
+  </springProfile>
+
+  <springProfile name="!prod">
+    <root level="INFO">
+      <appender-ref ref="CONSOLE"/>
+    </root>
+    <logger name="com.example.photomanagement" level="DEBUG"/>
+  </springProfile>
+</configuration>
