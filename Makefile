@@ -1,4 +1,4 @@
-.PHONY: setup dev backend frontend db-up db-down test test-backend test-frontend lint lint-backend lint-frontend format check migrate clean
+.PHONY: setup dev backend frontend db-up db-down test test-backend test-frontend lint lint-backend lint-frontend format check arch coverage outdated security migrate clean help
 
 # --- Setup ---
 
@@ -39,6 +39,13 @@ test-backend: ## Run backend tests (requires Docker for Testcontainers)
 test-frontend: ## Run frontend tests
 	cd frontend && pnpm test
 
+arch: ## Run ArchUnit architecture tests only
+	cd backend && ./gradlew test --tests 'com.example.photomanagement.arch.*'
+
+coverage: ## Generate JaCoCo HTML coverage report at backend/build/reports/jacoco/test/html/
+	cd backend && ./gradlew test jacocoTestReport
+	@echo "Report: backend/build/reports/jacoco/test/html/index.html"
+
 # --- Lint / Format ---
 
 lint: lint-backend lint-frontend ## Run all linters
@@ -55,7 +62,15 @@ format: ## Auto-format both backend and frontend
 
 # --- Check (CI parity) ---
 
-check: lint test ## Run everything CI runs
+check: lint test ## Run everything CI runs (lint + test, includes ArchUnit and JaCoCo)
+
+# --- Security / Dependency hygiene ---
+
+security: ## Run OWASP Dependency Check (slow without NVD_API_KEY)
+	cd backend && ./gradlew dependencyCheckAnalyze
+
+outdated: ## Report outdated Gradle dependencies
+	cd backend && ./gradlew dependencyUpdates
 
 # --- Misc ---
 
