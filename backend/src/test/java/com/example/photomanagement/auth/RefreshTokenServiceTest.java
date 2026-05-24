@@ -20,14 +20,25 @@ import org.mybatis.spring.boot.test.autoconfigure.MybatisTest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
 import org.springframework.context.annotation.Import;
+import org.springframework.test.context.jdbc.Sql;
+import org.springframework.test.context.jdbc.SqlConfig;
+import org.springframework.test.context.transaction.TestTransaction;
+import org.springframework.transaction.PlatformTransactionManager;
 
 @MybatisTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @Import(TestcontainersConfiguration.class)
+// Theft-detection commits a family revoke in a separate REQUIRES_NEW transaction (see
+// RefreshTokenService#familyRevokeTx). Rows that survive into committed state via that path or via
+// TestTransaction.flagForCommit() are scrubbed before every test to keep tests independent.
+@Sql(
+    statements = {"DELETE FROM refresh_tokens", "DELETE FROM user_roles", "DELETE FROM users"},
+    config = @SqlConfig(transactionMode = SqlConfig.TransactionMode.ISOLATED))
 class RefreshTokenServiceTest {
 
   @Autowired private RefreshTokenMapper refreshTokenMapper;
   @Autowired private UserMapper userMapper;
+  @Autowired private PlatformTransactionManager txManager;
 
   private MutableClock clock;
   private RefreshTokenService service;
@@ -46,7 +57,7 @@ class RefreshTokenServiceTest {
                 true,
                 Duration.ofSeconds(5)),
             new PasswordProps(4));
-    service = new RefreshTokenService(refreshTokenMapper, props, clock);
+    service = new RefreshTokenService(refreshTokenMapper, props, clock, txManager);
 
     String email = "rt-test+" + System.nanoTime() + "@example.com";
     userMapper.insert(email, "hash");
@@ -94,6 +105,12 @@ class RefreshTokenServiceTest {
     NewRefreshToken a = service.issueForLogin(userId);
     clock.advance(Duration.ofSeconds(1));
     RotationResult b = service.rotate(a.plaintext()); // legitimate rotation; A is now used
+
+    // Commit prior setup: the theft-path family revoke runs in REQUIRES_NEW (separate connection)
+    // and therefore cannot see rows still pending in this test's transaction.
+    TestTransaction.flagForCommit();
+    TestTransaction.end();
+    TestTransaction.start();
 
     clock.advance(Duration.ofSeconds(10)); // beyond 5s grace window
 

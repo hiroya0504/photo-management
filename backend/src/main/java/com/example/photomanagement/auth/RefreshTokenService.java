@@ -13,7 +13,10 @@ import java.util.HexFormat;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Issues, rotates and revokes refresh tokens. Implements RFC 6749-style refresh-token rotation with
@@ -31,13 +34,22 @@ public class RefreshTokenService {
   private final RefreshTokenMapper mapper;
   private final AuthProperties props;
   private final Clock clock;
+  private final TransactionTemplate familyRevokeTx;
   private final SecureRandom random = new SecureRandom();
   private final Base64.Encoder base64Url = Base64.getUrlEncoder().withoutPadding();
 
-  public RefreshTokenService(RefreshTokenMapper mapper, AuthProperties props, Clock clock) {
+  public RefreshTokenService(
+      RefreshTokenMapper mapper,
+      AuthProperties props,
+      Clock clock,
+      PlatformTransactionManager txManager) {
     this.mapper = mapper;
     this.props = props;
     this.clock = clock;
+    // REQUIRES_NEW so the theft-detection family revoke commits independently of the outer
+    // rotation transaction, which we deliberately abort by throwing UnauthorizedException.
+    this.familyRevokeTx = new TransactionTemplate(txManager);
+    this.familyRevokeTx.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
   }
 
   /** Starts a brand-new family. Used after a successful login. */
@@ -49,6 +61,11 @@ public class RefreshTokenService {
   /**
    * Consumes an existing refresh token and produces a new one in the same family. Detects reuse of
    * already-consumed tokens and revokes the entire family in that case.
+   *
+   * <p>The family revoke on theft detection runs in a separate REQUIRES_NEW transaction (see {@code
+   * familyRevokeTx}) so it commits even though this method throws {@code UnauthorizedException}
+   * immediately afterwards. Without that, the default unchecked exception rollback would erase the
+   * revoke and silently disable theft detection.
    */
   @Transactional
   public RotationResult rotate(String plaintextToken) {
@@ -97,18 +114,22 @@ public class RefreshTokenService {
     Instant usedAt = record.usedAt();
     if (usedAt == null) {
       // Race: someone reverted used_at between markUsed and our re-read. Defensive: treat as theft.
-      mapper.revokeFamily(record.familyId(), now);
+      revokeFamilyInOwnTransaction(record.familyId(), now);
       throw new UnauthorizedException(
           "TOKEN_REUSE", "Refresh token reuse detected; family revoked");
     }
     Duration sinceUsed = Duration.between(usedAt, now);
     if (sinceUsed.compareTo(props.refreshToken().graceWindow()) > 0) {
-      mapper.revokeFamily(record.familyId(), now);
+      revokeFamilyInOwnTransaction(record.familyId(), now);
       throw new UnauthorizedException(
           "TOKEN_REUSE", "Refresh token reuse detected; family revoked");
     }
     NewRefreshToken issued = issue(record.userId(), record.familyId());
     return new RotationResult(record.userId(), issued);
+  }
+
+  private void revokeFamilyInOwnTransaction(UUID familyId, Instant now) {
+    familyRevokeTx.executeWithoutResult(status -> mapper.revokeFamily(familyId, now));
   }
 
   /** Revokes only the supplied token. Other family members (e.g. another device) remain valid. */
@@ -155,6 +176,9 @@ public class RefreshTokenService {
       byte[] digest = md.digest(input.getBytes(StandardCharsets.UTF_8));
       return HexFormat.of().formatHex(digest);
     } catch (NoSuchAlgorithmException e) {
+      // SHA-256 is mandatory in every standards-compliant JVM. If it disappears the runtime is
+      // fatally broken; surface that as an unchecked exception rather than pretending we can
+      // recover.
       throw new IllegalStateException("SHA-256 unavailable", e);
     }
   }
