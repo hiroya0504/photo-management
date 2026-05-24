@@ -3,20 +3,14 @@ name: frontend
 on:
   push:
     branches: [main]
-    paths:
-      - "frontend/**"
-      - ".github/workflows/frontend.yml"
   pull_request:
-    paths:
-      - "frontend/**"
-      - ".github/workflows/frontend.yml"
 
 defaults:
   run:
     working-directory: frontend
 
 jobs:
-  build:
+  frontend:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

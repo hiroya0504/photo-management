@@ -110,6 +110,15 @@ photo-management/
 
 ---
 
+## CI 構成のメモ
+
+- `backend.yml` / `frontend.yml` は常に main への push と全 PR で走る（path filter は未使用）。
+- 理由: ブランチ保護で「両方緑」を必須にする際、path filter があると当該領域に変更がない PR で該当 workflow が skip され、未報告として永遠にブロックされる問題があるため。
+- 大規模化したら「merge gate」aggregator workflow を追加して path filter を復活させる選択肢あり。
+- ジョブ名はそれぞれ `backend` / `frontend`（必須コンテキスト名）。
+
+---
+
 ## 落とし穴
 
 - **Spring Boot 3.5 + MyBatis 3.0.5**: スターターのバージョン互換は固定で書いてある（build.gradle）。Boot をアップグレードするときは MyBatis 側も追従要。
