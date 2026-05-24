@@ -167,6 +167,37 @@ class RefreshTokenServiceTest {
         .isNull();
   }
 
+  @Test
+  void revokeAllForUserRevokesEveryActiveTokenAcrossFamilies() {
+    // Simulate multiple devices: two separate logins (two families).
+    NewRefreshToken a = service.issueForLogin(userId);
+    NewRefreshToken b = service.issueForLogin(userId);
+
+    int revoked = service.revokeAllForUser(userId);
+
+    assertThat(revoked).isEqualTo(2);
+    assertThat(
+            refreshTokenMapper.findByTokenHash(sha256Hex(a.plaintext())).orElseThrow().revokedAt())
+        .isNotNull();
+    assertThat(
+            refreshTokenMapper.findByTokenHash(sha256Hex(b.plaintext())).orElseThrow().revokedAt())
+        .isNotNull();
+  }
+
+  @Test
+  void revokeAllForUserIsIdempotent() {
+    NewRefreshToken a = service.issueForLogin(userId);
+    service.revokeAllForUser(userId);
+
+    int secondCallRevoked = service.revokeAllForUser(userId);
+
+    // Already-revoked rows are excluded by the partial WHERE clause, so the second call is a no-op.
+    assertThat(secondCallRevoked).isEqualTo(0);
+    assertThat(
+            refreshTokenMapper.findByTokenHash(sha256Hex(a.plaintext())).orElseThrow().revokedAt())
+        .isNotNull();
+  }
+
   private static String sha256Hex(String s) {
     try {
       var md = java.security.MessageDigest.getInstance("SHA-256");
