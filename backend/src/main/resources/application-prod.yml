@@ -1,0 +1,15 @@
+# Production profile overrides.
+#
+# These properties have *no* default value: if the corresponding environment
+# variable is unset, Spring Boot will refuse to start instead of silently
+# falling back to a developer-friendly default.
+#
+# Activate this profile with `--spring.profiles.active=prod` or
+# `SPRING_PROFILES_ACTIVE=prod`.
+auth:
+  jwt:
+    # AUTH_JWT_SECRET is mandatory in prod; no inline default so resolution fails fast.
+    secret: ${AUTH_JWT_SECRET}
+  refresh-token:
+    # Refresh cookie must be HTTPS-only in prod.
+    secure: ${AUTH_REFRESH_SECURE:true}
