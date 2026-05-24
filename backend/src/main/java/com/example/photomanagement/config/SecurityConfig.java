@@ -28,7 +28,13 @@ public class SecurityConfig {
         .authorizeHttpRequests(
             auth ->
                 auth.requestMatchers(
-                        HttpMethod.POST, "/api/auth/signup", "/api/auth/login", "/api/auth/refresh")
+                        HttpMethod.POST,
+                        "/api/auth/signup",
+                        "/api/auth/login",
+                        "/api/auth/refresh",
+                        // Logout authenticates itself via the rotation cookie and must succeed
+                        // even after the access token has expired, so the client can clear state.
+                        "/api/auth/logout")
                     .permitAll()
                     .requestMatchers(
                         "/api/health",
