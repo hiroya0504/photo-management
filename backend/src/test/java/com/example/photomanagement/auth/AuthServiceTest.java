@@ -25,7 +25,9 @@ import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InOrder;
 import org.mockito.Mock;
+import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DuplicateKeyException;
 
@@ -36,6 +38,7 @@ class AuthServiceTest {
   @Mock private RoleMapper roleMapper;
   @Mock private RefreshTokenService refreshTokenService;
   @Mock private JwtService jwtService;
+  @Mock private org.springframework.transaction.PlatformTransactionManager txManager;
 
   private PasswordHasher passwordHasher;
   private AuthService authService;
@@ -54,11 +57,12 @@ class AuthServiceTest {
             new PasswordProps(4)); // low cost for fast tests
     passwordHasher = new PasswordHasher(props);
     authService =
-        new AuthService(userMapper, roleMapper, passwordHasher, refreshTokenService, jwtService);
+        new AuthService(
+            userMapper, roleMapper, passwordHasher, refreshTokenService, jwtService, txManager);
   }
 
   @Test
-  void signupCreatesUserAndAssignsUserRole() {
+  void signupCreatesUserAndAssignsUserRoleInTheRightOrder() {
     when(userMapper.findActiveByEmail("alice@example.com"))
         .thenReturn(Optional.empty())
         .thenReturn(Optional.of(stubUser(10L, "alice@example.com", "hashed")));
@@ -67,8 +71,16 @@ class AuthServiceTest {
     User created = authService.signup("alice@example.com", "correct-horse");
 
     assertThat(created.id()).isEqualTo(10L);
-    verify(userMapper).insert(eq("alice@example.com"), anyString());
-    verify(roleMapper).assignRole(10L, (short) 2);
+
+    // InOrder asserts the actual call sequence (existence-check → insert → re-read for id →
+    // role assignment). Without this, removing the production-code insert would not fail this
+    // test because the second findActiveByEmail stub would still hand back the user.
+    InOrder order = Mockito.inOrder(userMapper, roleMapper);
+    order.verify(userMapper).findActiveByEmail("alice@example.com");
+    order.verify(userMapper).insert(eq("alice@example.com"), anyString());
+    order.verify(userMapper).findActiveByEmail("alice@example.com");
+    order.verify(roleMapper).findIdByName("USER");
+    order.verify(roleMapper).assignRole(10L, (short) 2);
   }
 
   @Test

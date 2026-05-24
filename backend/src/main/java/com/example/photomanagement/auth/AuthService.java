@@ -9,11 +9,18 @@ import java.util.List;
 import java.util.Optional;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * Handles user account creation and credential verification. Token issuance is delegated to {@code
+ * Handles user account creation and credential verification. Token issuance is delegated to {@link
  * JwtService} and {@link RefreshTokenService}; this class deals only in {@link User}.
+ *
+ * <p>BCrypt (strength 12, ~100-300 ms per call) is run <strong>outside</strong> any JDBC
+ * transaction so a single login does not pin a HikariCP connection for the full hashing time.
+ * Programmatic {@link TransactionTemplate} is used for the multi-statement write paths so we can
+ * scope the transaction tightly to the DB operations themselves.
  */
 @Service
 public class AuthService {
@@ -25,18 +32,21 @@ public class AuthService {
   private final PasswordHasher passwordHasher;
   private final RefreshTokenService refreshTokenService;
   private final JwtService jwtService;
+  private final TransactionTemplate writeTx;
 
   public AuthService(
       UserMapper userMapper,
       RoleMapper roleMapper,
       PasswordHasher passwordHasher,
       RefreshTokenService refreshTokenService,
-      JwtService jwtService) {
+      JwtService jwtService,
+      PlatformTransactionManager txManager) {
     this.userMapper = userMapper;
     this.roleMapper = roleMapper;
     this.passwordHasher = passwordHasher;
     this.refreshTokenService = refreshTokenService;
     this.jwtService = jwtService;
+    this.writeTx = new TransactionTemplate(txManager);
   }
 
   /**
@@ -49,35 +59,42 @@ public class AuthService {
     return jwtService.issueAccessToken(userId, roles);
   }
 
-  @Transactional
   public User signup(String email, String plainPassword) {
-    if (userMapper.findActiveByEmail(email).isPresent()) {
-      throw new ConflictException("EMAIL_TAKEN", "Email is already in use");
-    }
+    // BCrypt runs outside any DB transaction.
     String hashed = passwordHasher.hash(plainPassword);
-    try {
-      userMapper.insert(email, hashed);
-    } catch (DuplicateKeyException e) {
-      // A concurrent signup with the same email won the race; the partial unique index fired.
-      throw new ConflictException("EMAIL_TAKEN", "Email is already in use");
-    }
-    User created = userMapper.findActiveByEmail(email).orElseThrow();
-    // V2__create_auth.sql seeds 'USER'. Missing it indicates schema tampering or a broken
-    // migration; fail fast with an IllegalStateException (the catch-all in
-    // ProblemDetailsAdvice surfaces this to clients as a 500 ProblemDetails).
-    Short userRoleId =
-        roleMapper
-            .findIdByName(ROLE_USER)
-            .orElseThrow(() -> new IllegalStateException("Seed role '" + ROLE_USER + "' missing"));
-    roleMapper.assignRole(created.id(), userRoleId);
-    return created;
+    return writeTx.execute(
+        status -> {
+          if (userMapper.findActiveByEmail(email).isPresent()) {
+            throw new ConflictException("EMAIL_TAKEN", "Email is already in use");
+          }
+          try {
+            userMapper.insert(email, hashed);
+          } catch (DuplicateKeyException e) {
+            // Concurrent signup with the same email won the race; partial unique index fired.
+            throw new ConflictException("EMAIL_TAKEN", "Email is already in use");
+          }
+          User created = userMapper.findActiveByEmail(email).orElseThrow();
+          // V2__create_auth.sql seeds 'USER'. Missing it indicates schema tampering or a broken
+          // migration; fail fast with an IllegalStateException (the catch-all in
+          // ProblemDetailsAdvice surfaces this to clients as a 500 ProblemDetails).
+          Short userRoleId =
+              roleMapper
+                  .findIdByName(ROLE_USER)
+                  .orElseThrow(
+                      () -> new IllegalStateException("Seed role '" + ROLE_USER + "' missing"));
+          roleMapper.assignRole(created.id(), userRoleId);
+          return created;
+        });
   }
 
   /**
    * Verifies an email/password pair. Always runs a password comparison even when the email is
    * unknown so that response times do not leak account existence.
+   *
+   * <p>No {@code @Transactional}: this is a single SELECT (no atomicity guarantee needed) followed
+   * by CPU-bound BCrypt verification. Wrapping the BCrypt call in a transaction would needlessly
+   * hold a JDBC connection for ~300 ms.
    */
-  @Transactional(readOnly = true)
   public User authenticate(String email, String plainPassword) {
     Optional<User> maybeUser = userMapper.findActiveByEmail(email);
     String hashToCompare = maybeUser.map(User::passwordHash).orElse(passwordHasher.dummyHash());
@@ -97,8 +114,10 @@ public class AuthService {
    * <p>Not wired to an HTTP endpoint yet: the {@code POST /api/users/me/password} controller lands
    * in the M2 step 8 PR. The shape (userId taken from the authenticated principal; old + new
    * password in a request DTO) is fixed here so the controller layer is a straight pass-through.
+   *
+   * <p>BCrypt verify + hash run outside of any JDBC transaction; only the {@code
+   * updatePasswordHash} + {@code revokeAllForUser} writes are wrapped in one.
    */
-  @Transactional
   public void changePassword(Long userId, String oldPlainPassword, String newPlainPassword) {
     User user =
         userMapper
@@ -107,7 +126,11 @@ public class AuthService {
     if (!passwordHasher.matches(oldPlainPassword, user.passwordHash())) {
       throw new UnauthorizedException("INVALID_CREDENTIALS", "Current password is incorrect");
     }
-    userMapper.updatePasswordHash(user.id(), passwordHasher.hash(newPlainPassword));
-    refreshTokenService.revokeAllForUser(user.id());
+    String newHashed = passwordHasher.hash(newPlainPassword);
+    writeTx.executeWithoutResult(
+        status -> {
+          userMapper.updatePasswordHash(user.id(), newHashed);
+          refreshTokenService.revokeAllForUser(user.id());
+        });
   }
 }
