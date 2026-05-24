@@ -44,7 +44,11 @@ class JwtServiceTest {
     JwtService jwt = newService(VALID_SECRET, Duration.ofMinutes(15));
     String token = jwt.issueAccessToken(1L, List.of("USER"));
 
-    String tampered = token.substring(0, token.length() - 1) + "X";
+    // Flip the last char to something the original cannot have been (avoid the 1-in-64 chance
+    // that the token already ended with our chosen "tamper" character).
+    char last = token.charAt(token.length() - 1);
+    char different = (last == 'A') ? 'B' : 'A';
+    String tampered = token.substring(0, token.length() - 1) + different;
 
     assertThatThrownBy(() -> jwt.jwtDecoder().decode(tampered))
         .isInstanceOf(org.springframework.security.oauth2.jwt.JwtException.class);
