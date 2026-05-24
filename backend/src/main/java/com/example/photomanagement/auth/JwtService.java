@@ -33,6 +33,8 @@ public class JwtService {
 
   public JwtService(AuthProperties props) {
     byte[] secretBytes = props.jwt().secret().getBytes(StandardCharsets.UTF_8);
+    // Intentional fail-fast at startup: HS256 requires a key of at least the hash size (256 bit).
+    // A short secret silently degrades HMAC security, so we'd rather crash than boot mis-keyed.
     if (secretBytes.length < 32) {
       throw new IllegalStateException(
           "auth.jwt.secret must be at least 32 bytes (HS256). Got " + secretBytes.length + ".");
