@@ -52,13 +52,15 @@ photo-management のアーキ全体像。実装の Why は `docs/adr/` を、操
 - 切り替えは `application.yml` のプロパティで行う。
 - 値オブジェクト `StorageKey` で保存場所を識別（DB 列は `storage_key`）。
 
-## 認証認可（M2 で実装）
+## 認証認可（M2 実装済み）
 
-- Spring Security ベース。
+- Spring Security ベース（stateless Bearer JWT resource server）。
 - 認証: email + password、BCrypt ハッシュ化。
-- セッション: JWT（短命） + Refresh Token（DB 管理、ローテーション、ファミリー検知）。
-- 認可: RBAC（ロール: `ADMIN` / `OWNER` / `EDITOR` / `VIEWER`）。
-- アルバム単位の権限制御（将来の公開/共有を見据える）。
+- セッション: JWT（短命, 15 分） + Refresh Token（DB 管理、ローテーション、ファミリー検知、HttpOnly Cookie）。
+- 認可（System Role）: RBAC は 2 値 `ADMIN` / `USER`。`/api/admin/**` のみ `ROLE_ADMIN`、他は認証必須。
+- アルバム単位の共有ロール（`OWNER` / `EDITOR` / `VIEWER`）は **M8** で `album_members` に導入予定（System Role とは別軸）。
+- 設計判断の詳細は `docs/adr/0005-auth-design.md`。
+- feature 境界: `RefreshTokenMapper` は `auth/`、`UserMapper` / `RoleMapper` は `user/`（`auth → user` の一方向依存。逆向きが要る箇所は `user` 所有の port で逆転）。
 
 ## DB / マイグレーション
 
