@@ -1,6 +1,7 @@
 package com.example.photomanagement.auth;
 
 import com.example.photomanagement.common.error.UnauthorizedException;
+import com.example.photomanagement.user.SessionRevoker;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -26,7 +27,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  * <p>Plan reference: 7.8.3 / 7.8.4.
  */
 @Service
-public class RefreshTokenService {
+public class RefreshTokenService implements SessionRevoker {
 
   /** Number of random bytes per token before base64url encoding. */
   private static final int TOKEN_BYTES = 32;
@@ -156,6 +157,7 @@ public class RefreshTokenService {
    * <p>Note: outstanding access tokens (JWTs) cannot be revoked and remain valid until their expiry
    * (max 15 min). This is the documented trade-off of stateless access tokens.
    */
+  @Override
   @Transactional
   public int revokeAllForUser(Long userId) {
     return mapper.revokeAllForUser(userId, clock.instant());

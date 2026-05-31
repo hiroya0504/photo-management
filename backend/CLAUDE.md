@@ -103,6 +103,14 @@ com.example.photomanagement/
 
 ---
 
+## auth / user feature（M2、詳細は ADR 0005）
+
+- 認可: `/api/admin/**` は `SecurityConfig` で `ROLE_ADMIN`、他は認証必須。コントローラに `@PreAuthorize` は置かない。
+- acting user id は**常に Bearer JWT から**（`AuthenticatedUserResolver`）。リクエストボディの id は信用しない。
+- Mapper 所属: `RefreshTokenMapper` は `auth/`、`UserMapper` / `RoleMapper` は `user/`。
+- 依存の向きは `auth → user` の一方向のみ。`user` 側がパスワード変更/セッション失効（`auth` の機能）を要する箇所は、`user` 所有の port（`PasswordChanger` / `SessionRevoker`）を `auth` が実装して逆転させる（循環を作らない。ArchUnit が強制）。
+- Refresh Cookie は `Path=/api/auth`（logout にも届かせるため）。BCrypt はトランザクション外で実行。
+
 ## 詳細を知りたいとき
 
 - アーキ全体像: `docs/architecture.md`
