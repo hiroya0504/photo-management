@@ -3,6 +3,7 @@ package com.example.photomanagement.user;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasItem;
+import static org.hamcrest.Matchers.not;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -58,14 +59,21 @@ class AdminUserControllerTest {
   }
 
   @Test
-  void listUsersAsAdminReturnsAllActiveUsers() throws Exception {
+  void listUsersAsAdminReturnsActiveUsersAndExcludesDeleted() throws Exception {
     String extra = "extra-" + System.nanoTime() + "@example.com";
     signup(extra, PASSWORD);
+
+    // A soft-deleted user must not appear: this is the whole point of listActive's
+    // `deleted_at IS NULL` filter.
+    String deleted = "gone-" + System.nanoTime() + "@example.com";
+    signup(deleted, PASSWORD);
+    userMapper.softDelete(userMapper.findActiveByEmail(deleted).orElseThrow().id());
 
     mockMvc
         .perform(get("/api/admin/users").header("Authorization", "Bearer " + adminToken))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$[*].email", hasItem(extra)))
+        .andExpect(jsonPath("$[*].email", not(hasItem(deleted))))
         .andExpect(jsonPath("$[0].id").exists());
   }
 
