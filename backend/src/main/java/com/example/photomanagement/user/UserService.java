@@ -60,6 +60,8 @@ public class UserService {
 
   /**
    * Delegates to the {@code auth} feature; verifies the old password and revokes sessions there.
+   * Intentionally a thin pass-through: the controller goes through the service (3-layer rule) even
+   * though the logic lives behind the {@link PasswordChanger} port.
    */
   public void changePassword(Long userId, String oldPassword, String newPassword) {
     passwordChanger.changePassword(userId, oldPassword, newPassword);
@@ -98,11 +100,21 @@ public class UserService {
   }
 
   /**
-   * Admin soft-delete of an arbitrary user, revoking their sessions. A missing target is a 404
-   * (unlike self-delete, where a missing row means the caller's own token is stale -> 401).
+   * Admin soft-delete of another user, revoking their sessions. A missing target is a 404 (unlike
+   * self-delete, where a missing row means the caller's own token is stale -> 401).
+   *
+   * <p>An admin may not delete themselves through this path: doing so would lock them out (the next
+   * request 401s on the stale token, refresh tokens are all revoked) and, if they were the only
+   * admin, leave no one able to administer the system. Self-removal must go through {@code DELETE
+   * /api/users/me} as a deliberate account closure. "Last admin" protection is not enforced yet
+   * (would need a role-count query) — tracked as a follow-up in ADR 0005.
    */
   @Transactional
-  public void deleteUserAsAdmin(Long targetUserId) {
+  public void deleteUserAsAdmin(Long actingAdminId, Long targetUserId) {
+    if (actingAdminId.equals(targetUserId)) {
+      throw new ConflictException(
+          "CANNOT_DELETE_SELF", "Admins cannot delete their own account via the admin endpoint");
+    }
     int deleted = userMapper.softDelete(targetUserId);
     if (deleted == 0) {
       throw new NotFoundException("User " + targetUserId + " not found");
