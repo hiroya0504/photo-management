@@ -57,7 +57,12 @@ class AuthControllerTest {
         .andExpect(jsonPath("$.accessToken", notNullValue()))
         .andExpect(cookie().exists(COOKIE_NAME))
         .andExpect(cookie().httpOnly(COOKIE_NAME, true))
-        .andExpect(cookie().path(COOKIE_NAME, "/api/auth/refresh"));
+        // Path must cover /api/auth/logout so the browser actually sends the cookie on logout
+        // (otherwise the server-side revoke silently no-ops). This assertion is the real regression
+        // guard for the cookie-path security fix: MockMvc ignores cookie Path when *sending*, so
+        // the
+        // bug can only be caught on the produced Set-Cookie attribute, not via a behavioural call.
+        .andExpect(cookie().path(COOKIE_NAME, "/api/auth"));
   }
 
   @Test
@@ -179,6 +184,22 @@ class AuthControllerTest {
         .perform(
             post("/api/auth/logout").cookie(initial).header("Authorization", "Bearer not-a-jwt"))
         .andExpect(status().isNoContent());
+  }
+
+  @Test
+  void logoutRevokesRefreshTokenServerSide() throws Exception {
+    Cookie initial = signup(uniqueEmail, "correct-horse-battery");
+
+    mockMvc.perform(post("/api/auth/logout").cookie(initial)).andExpect(status().isNoContent());
+
+    // The same refresh cookie must no longer be usable: logout revoked the row server-side, so a
+    // subsequent rotation is rejected. Locks the logout -> revoke() wiring against regressions.
+    // (This does not reproduce the browser cookie-path scoping itself — MockMvc always sends the
+    // cookie regardless of Path — which is why the Path attribute is asserted separately above.)
+    mockMvc
+        .perform(post("/api/auth/refresh").cookie(initial))
+        .andExpect(status().isUnauthorized())
+        .andExpect(jsonPath("$.errorCode", equalTo("REVOKED_REFRESH")));
   }
 
   // -- helpers -------------------------------------------------------------
