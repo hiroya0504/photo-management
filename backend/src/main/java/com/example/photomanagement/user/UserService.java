@@ -1,8 +1,10 @@
 package com.example.photomanagement.user;
 
 import com.example.photomanagement.common.error.ConflictException;
+import com.example.photomanagement.common.error.NotFoundException;
 import com.example.photomanagement.common.error.UnauthorizedException;
 import com.example.photomanagement.user.dto.UserResponse;
+import com.example.photomanagement.user.dto.UserSummary;
 import java.util.List;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
@@ -77,6 +79,35 @@ public class UserService {
       throw new UnauthorizedException("USER_GONE", "User no longer exists");
     }
     sessionRevoker.revokeAllForUser(userId);
+  }
+
+  // -- admin operations (authorised at the edge by SecurityConfig: /api/admin/** -> hasRole ADMIN)
+
+  /**
+   * Lists active users for the admin console. Offset pagination for now; switching to the
+   * cursor-based scheme used elsewhere in the app is tracked as a follow-up (see ADR 0005). {@code
+   * limit} is clamped to a sane range so a caller cannot ask for an unbounded page.
+   */
+  @Transactional(readOnly = true)
+  public List<UserSummary> listUsers(int limit, int offset) {
+    int boundedLimit = Math.clamp(limit, 1, 100);
+    int boundedOffset = Math.max(offset, 0);
+    return userMapper.listActive(boundedLimit, boundedOffset).stream()
+        .map(u -> new UserSummary(u.id(), u.email(), u.createdAt()))
+        .toList();
+  }
+
+  /**
+   * Admin soft-delete of an arbitrary user, revoking their sessions. A missing target is a 404
+   * (unlike self-delete, where a missing row means the caller's own token is stale -> 401).
+   */
+  @Transactional
+  public void deleteUserAsAdmin(Long targetUserId) {
+    int deleted = userMapper.softDelete(targetUserId);
+    if (deleted == 0) {
+      throw new NotFoundException("User " + targetUserId + " not found");
+    }
+    sessionRevoker.revokeAllForUser(targetUserId);
   }
 
   private User requireActive(Long userId) {
