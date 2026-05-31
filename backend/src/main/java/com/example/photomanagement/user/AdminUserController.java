@@ -1,5 +1,6 @@
 package com.example.photomanagement.user;
 
+import com.example.photomanagement.common.web.AuthenticatedUserResolver;
 import com.example.photomanagement.user.dto.UserSummary;
 import java.util.List;
 import org.springframework.http.ResponseEntity;
@@ -20,9 +21,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class AdminUserController {
 
   private final UserService userService;
+  private final AuthenticatedUserResolver currentUser;
 
-  public AdminUserController(UserService userService) {
+  public AdminUserController(UserService userService, AuthenticatedUserResolver currentUser) {
     this.userService = userService;
+    this.currentUser = currentUser;
   }
 
   @GetMapping
@@ -33,7 +36,7 @@ public class AdminUserController {
 
   @DeleteMapping("/{id}")
   public ResponseEntity<Void> deleteUser(@PathVariable Long id) {
-    userService.deleteUserAsAdmin(id);
+    userService.deleteUserAsAdmin(currentUser.currentUserId(), id);
     return ResponseEntity.noContent().build();
   }
 }

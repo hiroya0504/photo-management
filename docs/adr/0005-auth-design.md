@@ -82,6 +82,7 @@ BCrypt（strength 12, ~100-300ms）を JDBC トランザクション内で回す
 
 - `user` が `auth` の実装 bean に実行時依存する（DI で注入）。port の契約が両者の結合点になる。
 - **admin のユーザー一覧は offset pagination**。アーキ方針（検索は cursor/keyset）と不整合だが、admin ツール用途として暫定許容。core の一覧 API を作る際に cursor へ揃える（follow-up）。
+- **admin の自己削除は `/api/admin/users/{id}` で拒否**（`CANNOT_DELETE_SELF` 409）。ロックアウト＋唯一 admin 消失を防ぐため。自アカウント閉鎖は `DELETE /api/users/me` を使う。ただし「最後の admin を別 admin が削除する」ケースの保護（role 数カウントが必要）は M2 未実装 — follow-up。
 - アクセストークンは失効不可（最大 15 分有効）。パスワード変更/削除後も残存アクセストークンは期限まで有効 = stateless JWT の文書化済みトレードオフ。
 
 ### Notes

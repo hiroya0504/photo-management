@@ -3,6 +3,7 @@ package com.example.photomanagement.user;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasItem;
+import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.not;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -45,12 +46,13 @@ class AdminUserControllerTest {
 
   private String adminToken;
   private String userToken;
+  private Long adminId;
 
   @BeforeEach
   void setUp() throws Exception {
     String adminEmail = "admin-" + System.nanoTime() + "@example.com";
     signup(adminEmail, PASSWORD);
-    Long adminId = userMapper.findActiveByEmail(adminEmail).orElseThrow().id();
+    adminId = userMapper.findActiveByEmail(adminEmail).orElseThrow().id();
     roleMapper.assignRole(adminId, roleMapper.findIdByName("ADMIN").orElseThrow());
     adminToken = tokenFrom(login(adminEmail, PASSWORD).andReturn());
 
@@ -101,6 +103,31 @@ class AdminUserControllerTest {
         .andExpect(status().isNoContent());
 
     assertThat(userMapper.findActiveById(targetId)).isEmpty();
+  }
+
+  @Test
+  void deleteSelfViaAdminEndpointIsRejected() throws Exception {
+    // An admin must not lock themselves out (and potentially leave no admins) through this path.
+    mockMvc
+        .perform(
+            delete("/api/admin/users/" + adminId).header("Authorization", "Bearer " + adminToken))
+        .andExpect(status().isConflict())
+        .andExpect(jsonPath("$.errorCode", equalTo("CANNOT_DELETE_SELF")));
+
+    assertThat(userMapper.findActiveById(adminId)).isPresent();
+  }
+
+  @Test
+  void listClampsOutOfRangePagingParams() throws Exception {
+    // limit=0 must clamp to >=1 (else LIMIT 0 returns nothing) and a negative offset must clamp to
+    // 0 (else Postgres rejects OFFSET -5 with a 500). setUp seeded >=2 active users, so a clamped
+    // request returns exactly one row with a 200.
+    mockMvc
+        .perform(
+            get("/api/admin/users?limit=0&offset=-5")
+                .header("Authorization", "Bearer " + adminToken))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$", hasSize(1)));
   }
 
   @Test
