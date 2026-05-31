@@ -5,6 +5,7 @@ import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.notNullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.cookie;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -92,10 +93,11 @@ class AuthFullFlowTest {
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.email", equalTo(email)));
 
-    // 6. Logout clears the cookie and revokes the row server-side.
+    // 6. Logout clears the cookie (Max-Age=0) and revokes the row server-side.
     mockMvc
         .perform(post("/api/auth/logout").cookie(rotatedCookie))
-        .andExpect(status().isNoContent());
+        .andExpect(status().isNoContent())
+        .andExpect(cookie().maxAge(COOKIE_NAME, 0));
 
     // 7. The rotated cookie is now dead.
     mockMvc
