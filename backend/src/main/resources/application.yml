@@ -44,7 +44,11 @@ auth:
   refresh-token:
     ttl: 7d
     cookie-name: refresh_token
-    cookie-path: /api/auth/refresh
+    # Scoped to /api/auth (not just /api/auth/refresh) so the cookie is also sent on
+    # /api/auth/logout. With the narrower path the browser withholds the cookie on logout, the
+    # server-side revoke never runs, and the refresh row stays valid for its full TTL even after
+    # the user "logs out". SameSite=Strict + HttpOnly are unchanged, so CSRF/XSS posture is the same.
+    cookie-path: /api/auth
     # Defaults to false so the cookie works on http://localhost in dev.
     # Production MUST set AUTH_REFRESH_SECURE=true (HTTPS only).
     secure: ${AUTH_REFRESH_SECURE:false}
