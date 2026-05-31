@@ -2,6 +2,7 @@ package com.example.photomanagement.auth;
 
 import com.example.photomanagement.common.error.ConflictException;
 import com.example.photomanagement.common.error.UnauthorizedException;
+import com.example.photomanagement.user.PasswordChanger;
 import com.example.photomanagement.user.RoleMapper;
 import com.example.photomanagement.user.User;
 import com.example.photomanagement.user.UserMapper;
@@ -23,7 +24,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  * scope the transaction tightly to the DB operations themselves.
  */
 @Service
-public class AuthService {
+public class AuthService implements PasswordChanger {
 
   private static final String ROLE_USER = "USER";
 
@@ -111,13 +112,14 @@ public class AuthService {
    * continue. Outstanding access tokens remain valid until their natural expiry (≤ 15 min) — that
    * window is the documented trade-off of stateless JWT access tokens.
    *
-   * <p>Not wired to an HTTP endpoint yet: the {@code POST /api/users/me/password} controller lands
-   * in the M2 step 8 PR. The shape (userId taken from the authenticated principal; old + new
-   * password in a request DTO) is fixed here so the controller layer is a straight pass-through.
+   * <p>Exposed to the {@code user} feature via the {@link PasswordChanger} port (implemented here)
+   * so {@code UserController} can serve {@code POST /api/users/me/password} without {@code user}
+   * depending on {@code auth} — see ADR 0005. The BCrypt machinery stays inside this feature.
    *
    * <p>BCrypt verify + hash run outside of any JDBC transaction; only the {@code
    * updatePasswordHash} + {@code revokeAllForUser} writes are wrapped in one.
    */
+  @Override
   public void changePassword(Long userId, String oldPlainPassword, String newPlainPassword) {
     User user =
         userMapper
