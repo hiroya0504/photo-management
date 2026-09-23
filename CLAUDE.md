@@ -33,7 +33,7 @@ photo-management/
 
 - 適用済み Flyway migration ファイルの編集（追加のみ可）。
 - `main` への直接 push / force push（ブランチ保護で禁止）。
-- 写真本体を DB に保存（必ずファイルシステム or S3）。
+- 写真本体を DB に保存（必ずファイルシステム or S3）
 - `Hibernate ddl-auto=update` 等のスキーマ自動変更。
 - 認証付きエンドポイントを `permitAll()` で素通し（M2 以降）。
 
