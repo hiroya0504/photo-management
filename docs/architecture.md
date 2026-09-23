@@ -1,6 +1,6 @@
 # architecture.md
 
-photo-management のアーキ全体像。実装の Why は `docs/adr/` を、操作手順は `docs/recipes/` を参照。
+photo-management のアーキ全体像。実装の Why は `docs/adr/` を、操作手順は `docs/recipes/` を参照
 
 ## 俯瞰
 
