@@ -10,7 +10,6 @@
 - **docker-compose.yml** — 開発用 PostgreSQL
 
 ## クイックスタート
-
 ```sh
 # 初回セットアップ
 make setup
