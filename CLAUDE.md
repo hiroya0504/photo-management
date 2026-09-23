@@ -1,6 +1,6 @@
 # CLAUDE.md — photo-management
 
-DSLR で撮った写真を整理する個人用 Web アプリ。将来的にポートフォリオ公開と AWS S3 移行を見据える。
+DSLR で撮った写真を整理する個人用 Web アプリ。将来的にポートフォリオ公開と AWS S3 移行を見据える
 
 ## 構成
 
