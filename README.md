@@ -25,4 +25,4 @@ make test
 make check
 ```
 
-詳細は [CLAUDE.md](./CLAUDE.md) を参照。
+詳細は [CLAUDE.md](./CLAUDE.md) を参照
